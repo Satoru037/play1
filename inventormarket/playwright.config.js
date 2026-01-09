@@ -43,19 +43,6 @@ module.exports = defineConfig({
 			},
 		},
 		{
-			name: "iPhone 17 Pro",
-			use: {
-				browserName: "chromium",
-				channel: "chrome",
-				viewport: { width: 393, height: 852 },
-				deviceScaleFactor: 3,
-				isMobile: true,
-				hasTouch: true,
-				userAgent:
-					"Mozilla/5.0 (iPhone; CPU iPhone OS 19_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/19.0 Mobile/15E148 Safari/604.1",
-			},
-		},
-		{
 			name: "iPhone 17 Pro Max",
 			use: {
 				browserName: "chromium",
