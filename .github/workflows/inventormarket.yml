@@ -87,6 +87,7 @@ jobs:
           name: inventor-market-report
           path: inventormarket/playwright-report/
           retention-days: 2
+          compression-level: 9
 
       # 5. Send Email (Using the new Secret List)
       - name: Send Email Notification
