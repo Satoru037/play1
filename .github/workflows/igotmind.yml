@@ -42,17 +42,14 @@ jobs:
       - name: Move Reports to Site Folder
         if: always()
         run: |
-          # 1. Create folder if missing
           mkdir -p igotmind
 
-          # 2. Move the HTML Report Folder
           if [ -d "playwright-report" ]; then
             rm -rf igotmind/playwright-report
             mv playwright-report igotmind/
             echo "✅ Moved HTML Report"
           fi
 
-          # 3. Move the JSON Results File
           if [ -f "results.json" ]; then
             mv results.json igotmind/
             echo "✅ Moved JSON Results"
@@ -64,7 +61,6 @@ jobs:
           node -e "
             try {
               const fs = require('fs');
-              // We just moved it here, so this will work now!
               if (fs.existsSync('./igotmind/results.json')) {
                 const r = require('./igotmind/results.json');
                 const passed = r.stats.expected + r.stats.flaky;
@@ -85,12 +81,33 @@ jobs:
           " >> $GITHUB_ENV
 
       - name: Upload Report Artifact
+        id: upload_report
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: playwright-report
           path: igotmind/playwright-report/
           retention-days: 2
+
+      - name: Prepare Report Message
+        if: always()
+        run: |
+          if [ "${{ steps.upload_report.outcome }}" = "success" ]; then
+            echo "REPORT_SECTION<<EOF" >> $GITHUB_ENV
+            echo "📂 DOWNLOAD FULL REPORT:" >> $GITHUB_ENV
+            echo "1. Open the link ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" >> $GITHUB_ENV
+            echo "2. Navigate to the \"Artifacts\" section." >> $GITHUB_ENV
+            echo "3. Click \"playwright-report\" to download the ZIP file." >> $GITHUB_ENV
+            echo "EOF" >> $GITHUB_ENV
+          else
+            echo "REPORT_SECTION<<EOF" >> $GITHUB_ENV
+            echo "⚠️ ARTIFACT UPLOAD ERROR:" >> $GITHUB_ENV
+            echo "The Playwright report artifact could not be uploaded (likely due to GitHub Actions storage/quota limits)." >> $GITHUB_ENV
+            echo "Please open this run and check the Upload Report Artifact step logs:" >> $GITHUB_ENV
+            echo "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" >> $GITHUB_ENV
+            echo "EOF" >> $GITHUB_ENV
+          fi
 
       - name: Send Email Notification
         if: always()
@@ -109,10 +126,7 @@ jobs:
             ✅ Passed: ${{ env.PASSED }}
             ❌ Failed: ${{ env.FAILED }}
 
-            📂 DOWNLOAD FULL REPORT:
-            1. Open the link ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-            2. Navigate to the "Artifacts" section.
-            3. Click "playwright-report" to download the ZIP file.
+            ${{ env.REPORT_SECTION }}
 
             ⚠️ Note:
             1. The test suite was executed sequentially to improve stability.
