@@ -105,7 +105,7 @@ jobs:
           " >> $GITHUB_ENV
 
       # =========================
-      # GOOGLE DRIVE REPORT FLOW
+      # GOOGLE DRIVE (OAUTH FLOW)
       # =========================
 
       - name: Zip Playwright Report
@@ -117,8 +117,9 @@ jobs:
       - name: Upload Report to Google Drive
         if: always() && env.REPORT_AVAILABLE == 'true'
         env:
-          GDRIVE_SERVICE_ACCOUNT_JSON: ${{ secrets.GDRIVE_SERVICE_ACCOUNT_JSON }}
-          GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
+          GDRIVE_CLIENT_ID: ${{ secrets.GDRIVE_CLIENT_ID }}
+          GDRIVE_CLIENT_SECRET: ${{ secrets.GDRIVE_CLIENT_SECRET }}
+          GDRIVE_REFRESH_TOKEN: ${{ secrets.GDRIVE_REFRESH_TOKEN }}
         run: |
           node scripts/uploadToDrive.js >> $GITHUB_ENV
 
@@ -146,7 +147,7 @@ jobs:
               if [ "${REPORT_AVAILABLE}" != "true" ]; then
                 echo "- Report not generated (igotmind/playwright-report missing)"
               else
-                echo "- Report generated but upload failed"
+                echo "- Report generated but Drive upload failed"
               fi
 
               echo ""

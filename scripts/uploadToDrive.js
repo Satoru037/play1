@@ -4,44 +4,39 @@ const fs = require("fs");
 const path = require("path");
 const { google } = require("googleapis");
 
-// ---- Load secrets from env ----
-if (!process.env.GDRIVE_SERVICE_ACCOUNT_JSON) {
-	throw new Error("Missing GDRIVE_SERVICE_ACCOUNT_JSON");
-}
-if (!process.env.GDRIVE_FOLDER_ID) {
-	throw new Error("Missing GDRIVE_FOLDER_ID");
+const clientId = process.env.GDRIVE_CLIENT_ID;
+const clientSecret = process.env.GDRIVE_CLIENT_SECRET;
+const refreshToken = process.env.GDRIVE_REFRESH_TOKEN;
+
+if (!clientId || !clientSecret || !refreshToken) {
+	throw new Error("Missing Google Drive OAuth secrets");
 }
 
-const credentials = JSON.parse(process.env.GDRIVE_SERVICE_ACCOUNT_JSON);
-const folderId = process.env.GDRIVE_FOLDER_ID;
+const oauth2Client = new google.auth.OAuth2(
+	clientId,
+	clientSecret,
+	"urn:ietf:wg:oauth:2.0:oob"
+);
 
-// ---- Create & authorize JWT client (CRITICAL FIX) ----
-const auth = new google.auth.JWT({
-	email: credentials.client_email,
-	key: credentials.private_key,
-	scopes: ["https://www.googleapis.com/auth/drive"],
+oauth2Client.setCredentials({
+	refresh_token: refreshToken,
 });
 
 async function run() {
-	// 🔴 THIS IS WHAT WAS MISSING
-	await auth.authorize();
-
 	const drive = google.drive({
 		version: "v3",
-		auth,
+		auth: oauth2Client,
 	});
 
 	const zipPath = path.resolve("igotmind/playwright-report.zip");
 
 	if (!fs.existsSync(zipPath)) {
-		throw new Error(`Report ZIP not found at ${zipPath}`);
+		throw new Error("Report ZIP not found");
 	}
 
-	// ---- Upload file ----
-	const uploadResponse = await drive.files.create({
+	const upload = await drive.files.create({
 		requestBody: {
 			name: `igotmind-report-${Date.now()}.zip`,
-			parents: [folderId],
 		},
 		media: {
 			mimeType: "application/zip",
@@ -50,9 +45,8 @@ async function run() {
 		fields: "id",
 	});
 
-	const fileId = uploadResponse.data.id;
+	const fileId = upload.data.id;
 
-	// ---- Make file public ----
 	await drive.permissions.create({
 		fileId,
 		requestBody: {
@@ -61,21 +55,16 @@ async function run() {
 		},
 	});
 
-	// ---- Fetch shareable link ----
 	const meta = await drive.files.get({
 		fileId,
 		fields: "webViewLink",
 	});
 
-	const link = meta.data.webViewLink;
-
-	// ---- Output for GitHub Actions ----
-	console.log(`REPORT_LINK=${link}`);
+	console.log(`REPORT_LINK=${meta.data.webViewLink}`);
 }
 
-// ---- Execute ----
 run().catch((err) => {
-	console.error("❌ Google Drive upload failed");
+	console.error("❌ Drive upload failed");
 	console.error(err.message || err);
 	process.exit(1);
 });
