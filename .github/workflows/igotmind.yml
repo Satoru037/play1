@@ -5,11 +5,12 @@ name: "I Got Mind: Automation"
 on:
   workflow_dispatch:
   schedule:
-    - cron: "30 3 * * 1" # Monday 9:00 AM IST (3:30 AM UTC)
+    - cron: "30 3 * * 1" # Monday 9:00 AM IST (03:30 AM UTC)
 
 permissions:
   contents: read
   id-token: write
+  actions: read
 
 jobs:
   test:
@@ -18,6 +19,12 @@ jobs:
     defaults:
       run:
         working-directory: ./
+    env:
+      PASSED: "0"
+      FAILED: "0"
+      TOTAL: "0"
+      REPORT_AVAILABLE: "false"
+      REPORT_SECTION: ""
 
     steps:
       - uses: actions/checkout@v4
@@ -33,8 +40,15 @@ jobs:
         run: npx playwright install --with-deps
 
       - name: Run Playwright Tests
+        id: run_tests
         continue-on-error: true
-        run: npx playwright test --config=igotmind/playwright.config.js --update-snapshots
+        shell: bash
+        run: |
+          set +e
+          npx playwright test --config=igotmind/playwright.config.js --update-snapshots --workers=1
+          code=$?
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          exit $code
         env:
           TEST_EMAIL: ${{ secrets.IGOTMIND_TEST_EMAIL }}
           TEST_PASSWORD: ${{ secrets.IGOTMIND_TEST_PASSWORD }}
@@ -53,6 +67,16 @@ jobs:
           if [ -f "results.json" ]; then
             mv results.json igotmind/
             echo "✅ Moved JSON Results"
+          fi
+
+      - name: Detect Report Availability
+        if: always()
+        shell: bash
+        run: |
+          if [ -d "igotmind/playwright-report" ] && [ -f "igotmind/playwright-report/index.html" ]; then
+            echo "REPORT_AVAILABLE=true" >> "$GITHUB_ENV"
+          else
+            echo "REPORT_AVAILABLE=false" >> "$GITHUB_ENV"
           fi
 
       - name: Calculate Test Stats
@@ -80,34 +104,57 @@ jobs:
             }
           " >> $GITHUB_ENV
 
-      - name: Upload Report Artifact
-        id: upload_report
-        if: always()
-        continue-on-error: true
-        uses: actions/upload-artifact@v4
-        with:
-          name: playwright-report
-          path: igotmind/playwright-report/
-          retention-days: 2
+      # =========================
+      # GOOGLE DRIVE REPORT FLOW
+      # =========================
+
+      - name: Zip Playwright Report
+        if: always() && env.REPORT_AVAILABLE == 'true'
+        run: |
+          cd igotmind
+          zip -r playwright-report.zip playwright-report
+
+      - name: Upload Report to Google Drive
+        if: always() && env.REPORT_AVAILABLE == 'true'
+        env:
+          GDRIVE_SERVICE_ACCOUNT_JSON: ${{ secrets.GDRIVE_SERVICE_ACCOUNT_JSON }}
+          GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
+        run: |
+          node scripts/uploadToDrive.js >> $GITHUB_ENV
 
       - name: Prepare Report Message
         if: always()
+        shell: bash
         run: |
-          if [ "${{ steps.upload_report.outcome }}" = "success" ]; then
-            echo "REPORT_SECTION<<EOF" >> $GITHUB_ENV
-            echo "📂 DOWNLOAD FULL REPORT:" >> $GITHUB_ENV
-            echo "1. Open the link ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" >> $GITHUB_ENV
-            echo "2. Navigate to the \"Artifacts\" section." >> $GITHUB_ENV
-            echo "3. Click \"playwright-report\" to download the ZIP file." >> $GITHUB_ENV
-            echo "EOF" >> $GITHUB_ENV
-          else
-            echo "REPORT_SECTION<<EOF" >> $GITHUB_ENV
-            echo "⚠️ ARTIFACT UPLOAD ERROR:" >> $GITHUB_ENV
-            echo "The Playwright report artifact could not be uploaded (likely due to GitHub Actions storage/quota limits)." >> $GITHUB_ENV
-            echo "Please open this run and check the Upload Report Artifact step logs:" >> $GITHUB_ENV
-            echo "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" >> $GITHUB_ENV
-            echo "EOF" >> $GITHUB_ENV
-          fi
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          {
+            echo "REPORT_SECTION<<EOF"
+
+            if [ "${REPORT_AVAILABLE}" = "true" ] && [ -n "${REPORT_LINK:-}" ]; then
+              echo "📂 DOWNLOAD FULL REPORT:"
+              echo "${REPORT_LINK}"
+            else
+              echo "⚠️ ISSUE SUMMARY:"
+
+              if [ "${{ steps.run_tests.outcome }}" != "success" ]; then
+                echo "- Tests failed (exit code: ${{ steps.run_tests.outputs.exit_code }})"
+              else
+                echo "- Tests step outcome: ${{ steps.run_tests.outcome }}"
+              fi
+
+              if [ "${REPORT_AVAILABLE}" != "true" ]; then
+                echo "- Report not generated (igotmind/playwright-report missing)"
+              else
+                echo "- Report generated but upload failed"
+              fi
+
+              echo ""
+              echo "Run logs: $RUN_URL"
+            fi
+
+            echo "EOF"
+          } >> "$GITHUB_ENV"
 
       - name: Send Email Notification
         if: always()
@@ -128,9 +175,10 @@ jobs:
 
             ${{ env.REPORT_SECTION }}
 
-            ⚠️ Note:
+            📋 Note:
             1. The test suite was executed sequentially to improve stability.
             2. UI animations were disabled during execution to ensure consistent and reliable visual comparisons.
+            3. 3rd party widgets are not captured in screenshots and are replaced with placeholders.
 
           to: ${{ secrets.REPORT_TO_MAILS }}
           from: "QA Automation Bot"
