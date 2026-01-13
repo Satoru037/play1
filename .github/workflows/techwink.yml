@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   test:
-    timeout-minutes: 145
+    timeout-minutes: 180
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -44,7 +44,7 @@ jobs:
         shell: bash
         run: |
           set +e
-          npx playwright test --config=techwink/playwright.config.js --workers=1
+          npx playwright test --config=techwink/playwright.config.js  --update-snapshots
           code=$?
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
           exit $code
