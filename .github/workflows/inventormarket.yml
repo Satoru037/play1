@@ -32,7 +32,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: lts/*
+          node-version: 20
 
       - name: Install Dependencies
         run: npm ci
@@ -40,7 +40,7 @@ jobs:
       - name: Install Playwright Browsers
         run: npx playwright install --with-deps
 
-      # 1. Run Tests (Targeting Inventor Market Config)
+      # 1. Run Tests
       - name: Run Playwright Tests
         id: run_tests
         continue-on-error: true
@@ -59,19 +59,24 @@ jobs:
         if: always()
         run: |
           mkdir -p inventormarket
+
           if [ -d "playwright-report" ]; then
             rm -rf inventormarket/playwright-report
             mv playwright-report inventormarket/
+            echo "✅ Moved HTML Report"
           fi
+
           if [ -f "results.json" ]; then
             mv results.json inventormarket/
+            echo "✅ Moved JSON Results"
           fi
 
       - name: Detect Report Availability
         if: always()
         shell: bash
         run: |
-          if [ -d "inventormarket/playwright-report" ] && [ -f "inventormarket/playwright-report/index.html" ]; then
+          if [ -d "inventormarket/playwright-report" ] && \
+             [ -f "inventormarket/playwright-report/index.html" ]; then
             echo "REPORT_AVAILABLE=true" >> "$GITHUB_ENV"
           else
             echo "REPORT_AVAILABLE=false" >> "$GITHUB_ENV"
@@ -103,36 +108,42 @@ jobs:
             }
           " >> $GITHUB_ENV
 
-      # 4. Upload Report Artifact
-      - name: Upload Report Artifact
-        id: upload_report
+      # =========================
+      # GOOGLE DRIVE (OAUTH FLOW)
+      # =========================
+
+      - name: Zip Playwright Report
         if: always() && env.REPORT_AVAILABLE == 'true'
-        continue-on-error: true
-        uses: actions/upload-artifact@v4
-        with:
-          name: inventormarket-report
-          path: inventormarket/playwright-report/
-          retention-days: 2
+        run: |
+          sudo apt-get update >/dev/null
+          sudo apt-get install -y zip >/dev/null
+          cd inventormarket
+          zip -r playwright-report.zip playwright-report
+
+      - name: Upload Report to Google Drive
+        if: always() && env.REPORT_AVAILABLE == 'true'
+        env:
+          GDRIVE_CLIENT_ID: ${{ secrets.GDRIVE_CLIENT_ID }}
+          GDRIVE_CLIENT_SECRET: ${{ secrets.GDRIVE_CLIENT_SECRET }}
+          GDRIVE_REFRESH_TOKEN: ${{ secrets.GDRIVE_REFRESH_TOKEN }}
+          REPORT_ZIP: inventormarket/playwright-report.zip
+          REPORT_NAME_PREFIX: inventormarket-report
+        run: |
+          node scripts/uploadToDrive.js >> $GITHUB_ENV
 
       - name: Prepare Report Message
         if: always()
-        env:
-          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
-          # Always write REPORT_SECTION, never fail this step.
           {
-            if [ "${REPORT_AVAILABLE}" = "true" ] && [ "${{ steps.upload_report.outcome }}" = "success" ]; then
-              echo "REPORT_SECTION<<EOF"
+            echo "REPORT_SECTION<<EOF"
+
+            if [ "${REPORT_AVAILABLE}" = "true" ] && [ -n "${REPORT_LINK:-}" ]; then
               echo "📂 DOWNLOAD FULL REPORT:"
-              echo "1. Open the link $RUN_URL"
-              echo "2. Navigate to the \"Artifacts\" section."
-              echo "3. Click \"inventormarket-report\" to download the ZIP file."
-              echo "EOF"
+              echo "${REPORT_LINK}"
             else
-              echo "REPORT_SECTION<<EOF"
               echo "⚠️ ISSUE SUMMARY:"
 
               if [ "${{ steps.run_tests.outcome }}" != "success" ]; then
@@ -143,50 +154,18 @@ jobs:
 
               if [ "${REPORT_AVAILABLE}" != "true" ]; then
                 echo "- Report not generated (inventormarket/playwright-report missing)"
-                echo "  Likely cause: Playwright crashed early, reporters changed, or run was cancelled."
               else
-                echo "- Report generated: yes"
-                if [ "${{ steps.upload_report.outcome }}" != "success" ]; then
-                  echo "- Artifact upload failed (outcome: ${{ steps.upload_report.outcome }})"
-                  echo "  Possible causes: artifact quota/storage limit, artifact too large, transient GitHub issue."
-
-                  # Best-effort: pull a few relevant lines from the run logs zip.
-                  mkdir -p _runlogs || true
-                  curl -sS -L \
-                    -H "Authorization: Bearer $GH_TOKEN" \
-                    -H "Accept: application/vnd.github+json" \
-                    "https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/logs" \
-                    -o _runlogs/logs.zip || true
-
-                  if [ -f "_runlogs/logs.zip" ]; then
-                    if command -v unzip >/dev/null 2>&1; then
-                      unzip -q -o _runlogs/logs.zip -d _runlogs/extracted || true
-                    else
-                      python3 -c "import zipfile; zipfile.ZipFile('_runlogs/logs.zip').extractall('_runlogs/extracted')" \
-                        || python -c "import zipfile; zipfile.ZipFile('_runlogs/logs.zip').extractall('_runlogs/extracted')" \
-                        || true
-                    fi
-
-                    ERROR_LINES=$(grep -R -i -E "quota|artifact|too large|HTTP [45][0-9][0-9]|::error|Error:" _runlogs/extracted 2>/dev/null | tail -n 25 || true)
-
-                    if [ -n "${ERROR_LINES:-}" ]; then
-                      echo ""
-                      echo "Artifact/log hints:"
-                      echo "$ERROR_LINES"
-                    fi
-                  fi
-                else
-                  echo "- Artifact upload: skipped or not attempted"
-                fi
+                echo "- Report generated but Drive upload failed"
               fi
 
               echo ""
               echo "Run logs: $RUN_URL"
-              echo "EOF"
             fi
-          } >> "$GITHUB_ENV" || true
 
-      # 5. Send Email (Using the new Secret List)
+            echo "EOF"
+          } >> "$GITHUB_ENV"
+
+      # 5. Send Email
       - name: Send Email Notification
         if: always()
         uses: dawidd6/action-send-mail@v3
