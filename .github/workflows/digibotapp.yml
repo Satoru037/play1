@@ -4,13 +4,11 @@ name: "DigiBot: Automation"
 
 on:
   workflow_dispatch:
-  schedule:
-    # Runs on Tuesdays at 9:00 AM IST (3:30 AM UTC)
-    - cron: "30 3 * * 2"
 
 permissions:
   contents: read
   id-token: write
+  actions: read
 
 jobs:
   test:
@@ -19,13 +17,19 @@ jobs:
     defaults:
       run:
         working-directory: ./
+    env:
+      PASSED: "0"
+      FAILED: "0"
+      TOTAL: "0"
+      REPORT_AVAILABLE: "false"
+      REPORT_SECTION: ""
 
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
-          node-version: lts/*
+          node-version: 20
 
       - name: Install Dependencies
         run: npm ci
@@ -33,11 +37,17 @@ jobs:
       - name: Install Playwright Browsers
         run: npx playwright install --with-deps
 
-      # 1. Run Tests (Targeting DigiBot Config)
+      # 1. Run Tests
       - name: Run Playwright Tests
+        id: run_tests
         continue-on-error: true
-        run: npx playwright test --config=digibotapp/playwright.config.js --update-snapshots
-        # No login secrets needed for public pages, but kept for future use
+        shell: bash
+        run: |
+          set +e
+          npx playwright test --config=digibotapp/playwright.config.js --update-snapshots --workers=1
+          code=$?
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          exit $code
         env:
           CI: true
 
@@ -46,12 +56,27 @@ jobs:
         if: always()
         run: |
           mkdir -p digibotapp
+
           if [ -d "playwright-report" ]; then
             rm -rf digibotapp/playwright-report
             mv playwright-report digibotapp/
+            echo "✅ Moved HTML Report"
           fi
+
           if [ -f "results.json" ]; then
             mv results.json digibotapp/
+            echo "✅ Moved JSON Results"
+          fi
+
+      - name: Detect Report Availability
+        if: always()
+        shell: bash
+        run: |
+          if [ -d "digibotapp/playwright-report" ] && \
+             [ -f "digibotapp/playwright-report/index.html" ]; then
+            echo "REPORT_AVAILABLE=true" >> "$GITHUB_ENV"
+          else
+            echo "REPORT_AVAILABLE=false" >> "$GITHUB_ENV"
           fi
 
       # 3. Calculate Stats
@@ -63,14 +88,14 @@ jobs:
               const fs = require('fs');
               if (fs.existsSync('./digibotapp/results.json')) {
                 const r = require('./digibotapp/results.json');
-                const passed = r.stats.expected + r.stats.flaky;
-                const failed = r.stats.unexpected;
+                const passed = (r.stats?.expected || 0) + (r.stats?.flaky || 0);
+                const failed = (r.stats?.unexpected || 0);
                 console.log('PASSED=' + passed);
                 console.log('FAILED=' + failed);
                 console.log('TOTAL=' + (passed + failed));
               } else {
                 console.log('PASSED=0');
-                console.log('FAILED=Error');
+                console.log('FAILED=Unknown');
                 console.log('TOTAL=0');
               }
             } catch (e) {
@@ -80,14 +105,62 @@ jobs:
             }
           " >> $GITHUB_ENV
 
-      # 4. Upload Report Artifact
-      - name: Upload Report Artifact
+      # =========================
+      # GOOGLE DRIVE (OAUTH FLOW)
+      # =========================
+
+      - name: Zip Playwright Report
+        if: always() && env.REPORT_AVAILABLE == 'true'
+        run: |
+          sudo apt-get update >/dev/null
+          sudo apt-get install -y zip >/dev/null
+          cd digibotapp
+          zip -r playwright-report.zip playwright-report
+
+      - name: Upload Report to Google Drive
+        if: always() && env.REPORT_AVAILABLE == 'true'
+        env:
+          GDRIVE_CLIENT_ID: ${{ secrets.GDRIVE_CLIENT_ID }}
+          GDRIVE_CLIENT_SECRET: ${{ secrets.GDRIVE_CLIENT_SECRET }}
+          GDRIVE_REFRESH_TOKEN: ${{ secrets.GDRIVE_REFRESH_TOKEN }}
+          REPORT_ZIP: digibotapp/playwright-report.zip
+          REPORT_NAME_PREFIX: digibot-report
+        run: |
+          node scripts/uploadToDrive.js >> $GITHUB_ENV
+
+      - name: Prepare Report Message
         if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: digibot-report
-          path: digibotapp/playwright-report/
-          retention-days: 2
+        shell: bash
+        run: |
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          {
+            echo "REPORT_SECTION<<EOF"
+
+            if [ "${REPORT_AVAILABLE}" = "true" ] && [ -n "${REPORT_LINK:-}" ]; then
+              echo "📂 DOWNLOAD FULL REPORT:"
+              echo "${REPORT_LINK}"
+            else
+              echo "⚠️ ISSUE SUMMARY:"
+
+              if [ "${{ steps.run_tests.outcome }}" != "success" ]; then
+                echo "- Tests failed (exit code: ${{ steps.run_tests.outputs.exit_code }})"
+              else
+                echo "- Tests step outcome: ${{ steps.run_tests.outcome }}"
+              fi
+
+              if [ "${REPORT_AVAILABLE}" != "true" ]; then
+                echo "- Report not generated (digibotapp/playwright-report missing)"
+              else
+                echo "- Report generated but Drive upload failed"
+              fi
+
+              echo ""
+              echo "Run logs: $RUN_URL"
+            fi
+
+            echo "EOF"
+          } >> "$GITHUB_ENV"
 
       # 5. Send Email
       - name: Send Email Notification
@@ -96,7 +169,6 @@ jobs:
         with:
           server_address: premium49.web-hosting.com
           server_port: 465
-          # REUSING YOUR EXISTING SECRETS
           username: ${{ secrets.REPORT_FROM_MAIL }}
           password: ${{ secrets.REPORT_FROM_PASSWORD }}
           subject: "DigiBot - QA Automation Complete: ${{ env.PASSED }}/${{ env.TOTAL }} Passed"
@@ -108,12 +180,9 @@ jobs:
             ✅ Passed: ${{ env.PASSED }}
             ❌ Failed: ${{ env.FAILED }}
 
-            📂 DOWNLOAD FULL REPORT:
-            1. Open the link ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-            2. Navigate to the "Artifacts" section.
-            3. Click "digibot-report" to download the ZIP file.
+            ${{ env.REPORT_SECTION }}
 
-            ⚠️ Note:
+            📋 Note:
             1. The test suite was executed sequentially to improve stability.
             2. UI animations were disabled during execution to ensure consistent and reliable visual comparisons.
 
