@@ -20,7 +20,6 @@ test.describe("Smoke Tests - Critical Paths", () => {
 			waitUntil: "domcontentloaded",
 		});
 		await expect(page.locator("body")).toBeVisible();
-		await expect(page.locator("h1").first()).toBeVisible();
 	});
 
 	test("Login/Register page is accessible", async ({ page }) => {

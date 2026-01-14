@@ -12,6 +12,8 @@ const refreshToken = process.env.GDRIVE_REFRESH_TOKEN;
 const reportZip = process.env.REPORT_ZIP;
 const reportNamePrefix = process.env.REPORT_NAME_PREFIX || "report";
 
+const sharedDriveId = process.env.GDRIVE_SHARED_DRIVE_ID;
+
 function requireEnv(name, value) {
 	if (!value) throw new Error(`Missing ${name}`);
 	return value;
@@ -91,7 +93,7 @@ async function getAccessToken() {
 		body,
 	});
 
-	if (!res.status || res.status < 200 || res.status >= 300) {
+	if (res.status < 200 || res.status >= 300) {
 		throw new Error(
 			`Failed to refresh token (HTTP ${res.status}): ${res.body || ""}`
 		);
@@ -100,12 +102,22 @@ async function getAccessToken() {
 	const parsed = JSON.parse(res.body);
 	if (!parsed.access_token)
 		throw new Error("Token response missing access_token");
+
 	return parsed.access_token;
 }
 
 async function createResumableUpload(accessToken, { filename, sizeBytes }) {
+	const body = {
+		name: filename,
+	};
+
+	// ✅ Attach to Shared Drive ONLY if configured
+	if (sharedDriveId) {
+		body.parents = [sharedDriveId];
+	}
+
 	const res = await httpRequest(
-		"https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable",
+		"https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&supportsAllDrives=true",
 		{
 			method: "POST",
 			headers: {
@@ -114,11 +126,11 @@ async function createResumableUpload(accessToken, { filename, sizeBytes }) {
 				"X-Upload-Content-Type": "application/zip",
 				"X-Upload-Content-Length": String(sizeBytes),
 			},
-			body: JSON.stringify({ name: filename }),
+			body: JSON.stringify(body),
 		}
 	);
 
-	if (!res.status || res.status < 200 || res.status >= 300) {
+	if (res.status < 200 || res.status >= 300) {
 		throw new Error(
 			`Failed to start upload (HTTP ${res.status}): ${res.body || ""}`
 		);
@@ -126,6 +138,7 @@ async function createResumableUpload(accessToken, { filename, sizeBytes }) {
 
 	const location = res.headers.location;
 	if (!location) throw new Error("Resumable upload missing Location header");
+
 	return location;
 }
 
@@ -146,7 +159,7 @@ async function uploadZip(accessToken, { zipPath, filename }) {
 		stream: fs.createReadStream(zipPath),
 	});
 
-	if (!res.status || res.status < 200 || res.status >= 300) {
+	if (res.status < 200 || res.status >= 300) {
 		throw new Error(
 			`Failed to upload file bytes (HTTP ${res.status}): ${res.body || ""}`
 		);
@@ -154,12 +167,13 @@ async function uploadZip(accessToken, { zipPath, filename }) {
 
 	const parsed = JSON.parse(res.body);
 	if (!parsed.id) throw new Error("Upload response missing file id");
+
 	return parsed.id;
 }
 
 async function makePublic(accessToken, fileId) {
 	const res = await httpRequest(
-		`https://www.googleapis.com/drive/v3/files/${fileId}/permissions`,
+		`https://www.googleapis.com/drive/v3/files/${fileId}/permissions?supportsAllDrives=true`,
 		{
 			method: "POST",
 			headers: {
@@ -170,7 +184,7 @@ async function makePublic(accessToken, fileId) {
 		}
 	);
 
-	if (!res.status || res.status < 200 || res.status >= 300) {
+	if (res.status < 200 || res.status >= 300) {
 		throw new Error(
 			`Failed to set permissions (HTTP ${res.status}): ${res.body || ""}`
 		);
@@ -179,7 +193,7 @@ async function makePublic(accessToken, fileId) {
 
 async function getWebViewLink(accessToken, fileId) {
 	const res = await httpRequest(
-		`https://www.googleapis.com/drive/v3/files/${fileId}?fields=webViewLink`,
+		`https://www.googleapis.com/drive/v3/files/${fileId}?fields=webViewLink&supportsAllDrives=true`,
 		{
 			method: "GET",
 			headers: {
@@ -189,7 +203,7 @@ async function getWebViewLink(accessToken, fileId) {
 		}
 	);
 
-	if (!res.status || res.status < 200 || res.status >= 300) {
+	if (res.status < 200 || res.status >= 300) {
 		throw new Error(
 			`Failed to read file link (HTTP ${res.status}): ${res.body || ""}`
 		);
@@ -198,26 +212,29 @@ async function getWebViewLink(accessToken, fileId) {
 	const parsed = JSON.parse(res.body);
 	if (!parsed.webViewLink)
 		throw new Error("Drive response missing webViewLink");
+
 	return parsed.webViewLink;
 }
 
 async function run() {
 	requireEnv("REPORT_ZIP", reportZip);
+
 	const zipPath = path.resolve(reportZip);
 	if (!fs.existsSync(zipPath))
 		throw new Error(`Report ZIP not found at: ${zipPath}`);
 
 	const accessToken = await getAccessToken();
 	const filename = `${reportNamePrefix}-${Date.now()}.zip`;
+
 	const fileId = await uploadZip(accessToken, { zipPath, filename });
 	await makePublic(accessToken, fileId);
-	const link = await getWebViewLink(accessToken, fileId);
 
+	const link = await getWebViewLink(accessToken, fileId);
 	console.log(`REPORT_LINK=${link}`);
 }
 
 run().catch((err) => {
 	console.error("❌ Drive upload failed");
-	console.error(err && err.message ? err.message : String(err));
+	console.error(err?.message || err);
 	process.exit(1);
 });
