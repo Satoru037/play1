@@ -13,7 +13,7 @@ module.exports = defineConfig({
 	use: {
 		baseURL: "https://microlocdirectory.com",
 		trace: "retain-on-failure",
-		screenshot: "only-on-failure",
+		screenshot: "on",
 	},
 
 	expect: {

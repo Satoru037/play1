@@ -13,7 +13,7 @@ module.exports = defineConfig({
 	use: {
 		baseURL: "https://techwink.net",
 		trace: "retain-on-failure",
-		screenshot: "only-on-failure",
+		screenshot: "on",
 	},
 
 	expect: {

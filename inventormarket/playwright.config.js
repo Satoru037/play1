@@ -13,7 +13,7 @@ module.exports = defineConfig({
 	use: {
 		baseURL: "https://www.inventor.market",
 		viewport: { width: 1280, height: 720 },
-		screenshot: "only-on-failure",
+		screenshot: "on",
 		trace: "retain-on-failure",
 	},
 
