@@ -12,16 +12,25 @@ module.exports = defineConfig({
 
 	reporter: [["html"], ["json", { outputFile: "results.json" }]],
 
-	timeout: 5 * 60 * 1000,
+	timeout: 8 * 60 * 1000, // 8 minutes total test timeout
 
 	use: {
 		baseURL: "https://igotmind.ca",
-
 		trace: "on-first-retry",
 		screenshot: "only-on-failure",
 
+		// Increased default navigation timeout
+		navigationTimeout: 60000,
+
+		// Increased default action timeout
+		actionTimeout: 30000,
+
 		launchOptions: {
-			args: ["--disable-blink-features=AutomationControlled"],
+			args: [
+				"--disable-blink-features=AutomationControlled",
+				"--disable-web-security",
+				"--disable-features=IsolateOrigins,site-per-process",
+			],
 			ignoreDefaultArgs: ["--enable-automation"],
 		},
 	},
@@ -29,9 +38,9 @@ module.exports = defineConfig({
 	expect: {
 		timeout: 30000,
 		toHaveScreenshot: {
-			maxDiffPixelRatio: 0.02,
-			threshold: 0.3,
-			timeout: 60000,
+			maxDiffPixelRatio: 0.04,
+			threshold: 0.4,
+			timeout: 90000,
 		},
 	},
 

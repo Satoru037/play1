@@ -59,7 +59,7 @@ test.describe("Visual Regression Tests - thefourthtwenty.ca", () => {
 			// Visual comparison
 			expect(screenshot).toMatchSnapshot({
 				name: `${pageInfo.name}-${testInfo.project.name}.png`,
-				maxDiffPixelRatio: 0.05,
+				maxDiffPixelRatio: 0.02,
 			});
 		});
 	}
