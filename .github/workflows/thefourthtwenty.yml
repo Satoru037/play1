@@ -1,0 +1,228 @@
+# @format
+
+name: "The Fourth Twenty: Automation"
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Runs on Friday at 9:00 AM IST (03:30 AM UTC)
+    - cron: "30 3 * * 5"
+
+permissions:
+  contents: read
+  id-token: write
+  actions: read
+
+jobs:
+  test:
+    timeout-minutes: 60
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./
+    env:
+      PASSED: "0"
+      FAILED: "0"
+      TOTAL: "0"
+      REPORT_AVAILABLE: "false"
+      REPORT_SECTION: ""
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Install Playwright Browsers
+        run: npx playwright install --with-deps
+
+      # 1. Run Tests
+      - name: Run Playwright Tests
+        id: run_tests
+        continue-on-error: true
+        shell: bash
+        run: |
+          set +e
+          npx playwright test --config=thefourthtwenty/playwright.config.js --update-snapshots 
+          code=$?
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          exit $code
+        env:
+          CI: true
+
+      # 2. Move Reports
+      - name: Move Reports to Site Folder
+        if: always()
+        run: |
+          mkdir -p thefourthtwenty
+
+          if [ -d "playwright-report" ]; then
+            rm -rf thefourthtwenty/playwright-report
+            mv playwright-report thefourthtwenty/
+            echo "✅ Moved HTML Report"
+          fi
+
+          if [ -f "results.json" ]; then
+            mv results.json thefourthtwenty/
+            echo "✅ Moved JSON Results"
+          fi
+
+      - name: Detect Report Availability
+        if: always()
+        shell: bash
+        run: |
+          if [ -d "thefourthtwenty/playwright-report" ] && \
+             [ -f "thefourthtwenty/playwright-report/index.html" ]; then
+            echo "REPORT_AVAILABLE=true" >> "$GITHUB_ENV"
+          else
+            echo "REPORT_AVAILABLE=false" >> "$GITHUB_ENV"
+          fi
+
+      # 3. Calculate Stats
+      - name: Calculate Test Stats
+        if: always()
+        run: |
+          node -e "
+            try {
+              const fs = require('fs');
+              if (fs.existsSync('./thefourthtwenty/results.json')) {
+                const r = require('./thefourthtwenty/results.json');
+                const passed = (r.stats?.expected || 0) + (r.stats?.flaky || 0);
+                const failed = (r.stats?.unexpected || 0);
+                console.log('PASSED=' + passed);
+                console.log('FAILED=' + failed);
+                console.log('TOTAL=' + (passed + failed));
+              } else {
+                console.log('PASSED=0');
+                console.log('FAILED=Error');
+                console.log('TOTAL=0');
+              }
+            } catch (e) {
+              console.log('PASSED=0');
+              console.log('FAILED=Crash');
+              console.log('TOTAL=0');
+            }
+          " >> $GITHUB_ENV
+
+      # =========================
+      # GITHUB ARTIFACTS
+      # =========================
+
+      - name: Upload HTML Report as Artifact
+        if: always() && env.REPORT_AVAILABLE == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: thefourthtwenty-playwright-report
+          path: thefourthtwenty/playwright-report/
+          retention-days: 30
+
+      - name: Upload JSON Results as Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: thefourthtwenty-test-results
+          path: thefourthtwenty/results.json
+          retention-days: 30
+          if-no-files-found: ignore
+
+      - name: Upload Screenshots as Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: thefourthtwenty-screenshots
+          path: |
+            thefourthtwenty/tests/**/*-snapshots/
+            thefourthtwenty/test-results/
+          retention-days: 30
+          if-no-files-found: ignore
+
+      # =========================
+      # PREPARE REPORT MESSAGE
+      # =========================
+
+      - name: Prepare Report Message
+        if: always()
+        shell: bash
+        run: |
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          ARTIFACT_URL="${RUN_URL}#artifacts"
+
+          {
+            echo "REPORT_SECTION<<EOF"
+
+            if [ "${REPORT_AVAILABLE}" = "true" ]; then
+              echo "📂 DOWNLOAD REPORT FROM GITHUB:"
+              echo "${ARTIFACT_URL}"
+              echo ""
+              echo "📦 Available Artifacts:"
+              echo "• thefourthtwenty-playwright-report - Full HTML Report"
+              echo "• thefourthtwenty-test-results - JSON Results"
+              echo "• thefourthtwenty-screenshots - Visual Snapshots"
+              echo ""
+              echo "📋 How to view the report:"
+              echo "1. Click the link above"
+              echo "2. Scroll to 'Artifacts' section"
+              echo "3. Download 'thefourthtwenty-playwright-report'"
+              echo "4. Extract the zip and open index.html"
+            else
+              echo "⚠️ ISSUE SUMMARY:"
+
+              if [ "${{ steps.run_tests.outcome }}" != "success" ]; then
+                echo "- Tests failed (exit code: ${{ steps.run_tests.outputs.exit_code }})"
+              else
+                echo "- Tests step outcome: ${{ steps.run_tests.outcome }}"
+              fi
+
+              if [ "${REPORT_AVAILABLE}" != "true" ]; then
+                echo "- Report not generated"
+              fi
+
+              echo ""
+              echo "🔗 View run logs: $RUN_URL"
+            fi
+
+            echo "EOF"
+          } >> "$GITHUB_ENV"
+
+      # =========================
+      # SEND EMAIL
+      # =========================
+
+      - name: Send Email Notification
+        if: always()
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: premium49.web-hosting.com
+          server_port: 465
+          username: ${{ secrets.REPORT_FROM_MAIL }}
+          password: ${{ secrets.REPORT_FROM_PASSWORD }}
+          subject: "The Fourth Twenty - QA Automation: ${{ env.PASSED }}/${{ env.TOTAL }} Passed"
+          body: |
+            ══════════════════════════════════════════
+            The Fourth Twenty – QA Automation Report
+            ══════════════════════════════════════════
+
+            📊 TEST RESULTS:
+            ✅ Passed: ${{ env.PASSED }}
+            ❌ Failed: ${{ env.FAILED }}
+            📈 Total:  ${{ env.TOTAL }}
+
+            ──────────────────────────────────────────
+
+            ${{ env.REPORT_SECTION }}
+
+            ──────────────────────────────────────────
+
+            📋 NOTES:
+            • Tests executed sequentially for stability
+            • Animations disabled for consistent screenshots
+            • Artifacts retained for 30 days
+
+            ══════════════════════════════════════════
+
+          to: ${{ secrets.REPORT_TO_MAILS }}
+          from: "QA Automation Bot"
