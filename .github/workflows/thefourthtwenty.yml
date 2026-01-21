@@ -4,9 +4,6 @@ name: "The Fourth Twenty: Automation"
 
 on:
   workflow_dispatch:
-  schedule:
-    # Runs on Friday at 9:00 AM IST (03:30 AM UTC)
-    - cron: "30 3 * * 5"
 
 permissions:
   contents: read
@@ -47,7 +44,7 @@ jobs:
         shell: bash
         run: |
           set +e
-          npx playwright test --config=thefourthtwenty/playwright.config.js --update-snapshots 
+          npx playwright test --config=thefourthtwenty/playwright.config.js --update-snapshots --workers=1
           code=$?
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
           exit $code
@@ -98,7 +95,7 @@ jobs:
                 console.log('TOTAL=' + (passed + failed));
               } else {
                 console.log('PASSED=0');
-                console.log('FAILED=Error');
+                console.log('FAILED=Unknown');
                 console.log('TOTAL=0');
               }
             } catch (e) {
@@ -109,65 +106,40 @@ jobs:
           " >> $GITHUB_ENV
 
       # =========================
-      # GITHUB ARTIFACTS
+      # GOOGLE DRIVE (OAUTH FLOW)
       # =========================
 
-      - name: Upload HTML Report as Artifact
+      - name: Zip Playwright Report
         if: always() && env.REPORT_AVAILABLE == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: thefourthtwenty-playwright-report
-          path: thefourthtwenty/playwright-report/
-          retention-days: 30
+        run: |
+          sudo apt-get update >/dev/null
+          sudo apt-get install -y zip >/dev/null
+          cd thefourthtwenty
+          zip -r playwright-report.zip playwright-report
 
-      - name: Upload JSON Results as Artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: thefourthtwenty-test-results
-          path: thefourthtwenty/results.json
-          retention-days: 30
-          if-no-files-found: ignore
-
-      - name: Upload Screenshots as Artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: thefourthtwenty-screenshots
-          path: |
-            thefourthtwenty/tests/**/*-snapshots/
-            thefourthtwenty/test-results/
-          retention-days: 30
-          if-no-files-found: ignore
-
-      # =========================
-      # PREPARE REPORT MESSAGE
-      # =========================
+      - name: Upload Report to Google Drive
+        if: always() && env.REPORT_AVAILABLE == 'true'
+        env:
+          GDRIVE_CLIENT_ID: ${{ secrets.GDRIVE_CLIENT_ID }}
+          GDRIVE_CLIENT_SECRET: ${{ secrets.GDRIVE_CLIENT_SECRET }}
+          GDRIVE_REFRESH_TOKEN: ${{ secrets.GDRIVE_REFRESH_TOKEN }}
+          REPORT_ZIP: thefourthtwenty/playwright-report.zip
+          REPORT_NAME_PREFIX: thefourthtwenty-report
+        run: |
+          node scripts/uploadToDrive.js >> $GITHUB_ENV
 
       - name: Prepare Report Message
         if: always()
         shell: bash
         run: |
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          ARTIFACT_URL="${RUN_URL}#artifacts"
 
           {
             echo "REPORT_SECTION<<EOF"
 
-            if [ "${REPORT_AVAILABLE}" = "true" ]; then
-              echo "📂 DOWNLOAD REPORT FROM GITHUB:"
-              echo "${ARTIFACT_URL}"
-              echo ""
-              echo "📦 Available Artifacts:"
-              echo "• thefourthtwenty-playwright-report - Full HTML Report"
-              echo "• thefourthtwenty-test-results - JSON Results"
-              echo "• thefourthtwenty-screenshots - Visual Snapshots"
-              echo ""
-              echo "📋 How to view the report:"
-              echo "1. Click the link above"
-              echo "2. Scroll to 'Artifacts' section"
-              echo "3. Download 'thefourthtwenty-playwright-report'"
-              echo "4. Extract the zip and open index.html"
+            if [ "${REPORT_AVAILABLE}" = "true" ] && [ -n "${REPORT_LINK:-}" ]; then
+              echo "📂 DOWNLOAD FULL REPORT:"
+              echo "${REPORT_LINK}"
             else
               echo "⚠️ ISSUE SUMMARY:"
 
@@ -178,20 +150,19 @@ jobs:
               fi
 
               if [ "${REPORT_AVAILABLE}" != "true" ]; then
-                echo "- Report not generated"
+                echo "- Report not generated (thefourthtwenty/playwright-report missing)"
+              else
+                echo "- Report generated but Drive upload failed"
               fi
 
               echo ""
-              echo "🔗 View run logs: $RUN_URL"
+              echo "Run logs: $RUN_URL"
             fi
 
             echo "EOF"
           } >> "$GITHUB_ENV"
 
-      # =========================
-      # SEND EMAIL
-      # =========================
-
+      # 5. Send Email
       - name: Send Email Notification
         if: always()
         uses: dawidd6/action-send-mail@v3
@@ -200,29 +171,20 @@ jobs:
           server_port: 465
           username: ${{ secrets.REPORT_FROM_MAIL }}
           password: ${{ secrets.REPORT_FROM_PASSWORD }}
-          subject: "The Fourth Twenty - QA Automation: ${{ env.PASSED }}/${{ env.TOTAL }} Passed"
+          subject: "The Fourth Twenty - QA Automation Complete: ${{ env.PASSED }}/${{ env.TOTAL }} Passed"
           body: |
-            ══════════════════════════════════════════
-            The Fourth Twenty – QA Automation Report
-            ══════════════════════════════════════════
+            The Fourth Twenty – QA Automation Summary
+            Execution Status: Completed
 
-            📊 TEST RESULTS:
+            SUMMARY:
             ✅ Passed: ${{ env.PASSED }}
             ❌ Failed: ${{ env.FAILED }}
-            📈 Total:  ${{ env.TOTAL }}
-
-            ──────────────────────────────────────────
 
             ${{ env.REPORT_SECTION }}
 
-            ──────────────────────────────────────────
-
-            📋 NOTES:
-            • Tests executed sequentially for stability
-            • Animations disabled for consistent screenshots
-            • Artifacts retained for 30 days
-
-            ══════════════════════════════════════════
+            📋 Note:
+            1. The test suite was executed sequentially to improve stability.
+            2. UI animations were disabled during execution to ensure consistent and reliable visual comparisons.
 
           to: ${{ secrets.REPORT_TO_MAILS }}
           from: "QA Automation Bot"
