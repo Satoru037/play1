@@ -120,9 +120,7 @@ jobs:
       - name: Upload Report to Google Drive
         if: always() && env.REPORT_AVAILABLE == 'true'
         env:
-          GDRIVE_CLIENT_ID: ${{ secrets.GDRIVE_CLIENT_ID }}
-          GDRIVE_CLIENT_SECRET: ${{ secrets.GDRIVE_CLIENT_SECRET }}
-          GDRIVE_REFRESH_TOKEN: ${{ secrets.GDRIVE_REFRESH_TOKEN }}
+          GDRIVE_SERVICE_ACCOUNT_KEY: ${{ secrets.GDRIVE_SERVICE_ACCOUNT_KEY }}
           REPORT_ZIP: thefourthtwenty/playwright-report.zip
           REPORT_NAME_PREFIX: thefourthtwenty-report
         run: |

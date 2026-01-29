@@ -4,6 +4,9 @@ name: "Techwink: Automation"
 
 on:
   workflow_dispatch:
+  schedule:
+    # Runs on Saturday at 9:00 AM IST (03:30 AM UTC)
+    - cron: "30 3 * * 6"
 
 permissions:
   contents: read
@@ -12,7 +15,7 @@ permissions:
 
 jobs:
   test:
-    timeout-minutes: 180
+    timeout-minutes: 240
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -186,6 +189,8 @@ jobs:
             📋 Note:
             1. The test suite was executed sequentially to improve stability.
             2. UI animations were disabled during execution to ensure consistent and reliable visual comparisons.
+            3. Smoke tests only verify page reachability and basic structure; screenshots from smoke tests do not represent full-page validation.
+            4. Full-page screenshots and sanity checks are performed in visual tests (visual.spec.js).
 
           to: ${{ secrets.REPORT_TO_MAILS }}
           from: "QA Automation Bot"
