@@ -35,8 +35,13 @@ async function run() {
 
 	const filename = `${reportNamePrefix}-${Date.now()}.zip`;
 
+	const FOLDER_ID = "1zmJTjQCK5KRjzk2lOz76BTosWNI2Fz3B";
+
 	const createRes = await drive.files.create({
-		requestBody: { name: filename },
+		requestBody: {
+			name: filename,
+			parents: [FOLDER_ID], // 👈 THIS IS THE FIX
+		},
 		media: {
 			mimeType: "application/zip",
 			body: fs.createReadStream(zipPath),
