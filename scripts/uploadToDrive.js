@@ -38,9 +38,10 @@ async function run() {
 	const FOLDER_ID = "1zmJTjQCK5KRjzk2lOz76BTosWNI2Fz3B";
 
 	const createRes = await drive.files.create({
+		supportsAllDrives: true, // 👈 ADD THIS
 		requestBody: {
 			name: filename,
-			parents: [FOLDER_ID], // 👈 THIS IS THE FIX
+			parents: [FOLDER_ID],
 		},
 		media: {
 			mimeType: "application/zip",
