@@ -2,93 +2,222 @@
 
 const fs = require("fs");
 const path = require("path");
-const { google } = require("googleapis");
+const https = require("https");
+const { URL } = require("url");
 
-// =====================
-// ENV VARS
-// =====================
+const clientId = process.env.GDRIVE_CLIENT_ID;
+const clientSecret = process.env.GDRIVE_CLIENT_SECRET;
+const refreshToken = process.env.GDRIVE_REFRESH_TOKEN;
+
 const reportZip = process.env.REPORT_ZIP;
 const reportNamePrefix = process.env.REPORT_NAME_PREFIX || "report";
-const serviceAccountKey = process.env.GDRIVE_SERVICE_ACCOUNT_KEY;
 
-// CHANGE THIS ONLY IF YOUR FOLDER CHANGES
-const FOLDER_ID = "1zmJTjQCK5KRjzk2lOz76BTosWNI2Fz3B";
-
-// =====================
-// HELPERS
-// =====================
 function requireEnv(name, value) {
-	if (!value) {
-		throw new Error(`Missing ${name}`);
-	}
+	if (!value) throw new Error(`Missing ${name}`);
 	return value;
 }
 
-// =====================
-// MAIN
-// =====================
-async function run() {
-	requireEnv("REPORT_ZIP", reportZip);
-	requireEnv("GDRIVE_SERVICE_ACCOUNT_KEY", serviceAccountKey);
-
-	const zipPath = path.resolve(reportZip);
-	if (!fs.existsSync(zipPath)) {
-		throw new Error(`Report ZIP not found at: ${zipPath}`);
-	}
-
-	// Auth using Service Account
-	const auth = new google.auth.GoogleAuth({
-		credentials: JSON.parse(
-			Buffer.from(serviceAccountKey, "base64").toString("utf8"),
-		),
-		scopes: ["https://www.googleapis.com/auth/drive"],
+function httpRequest(urlString, { method = "GET", headers = {}, body } = {}) {
+	return new Promise((resolve, reject) => {
+		const url = new URL(urlString);
+		const req = https.request(
+			{
+				method,
+				hostname: url.hostname,
+				path: url.pathname + url.search,
+				headers,
+			},
+			(res) => {
+				let data = "";
+				res.setEncoding("utf8");
+				res.on("data", (chunk) => (data += chunk));
+				res.on("end", () =>
+					resolve({ status: res.statusCode, headers: res.headers, body: data }),
+				);
+			},
+		);
+		req.on("error", reject);
+		if (body) req.write(body);
+		req.end();
 	});
-
-	const drive = google.drive({ version: "v3", auth });
-
-	const filename = `${reportNamePrefix}-${Date.now()}.zip`;
-
-	// Upload ZIP to shared folder
-	const createRes = await drive.files.create({
-		supportsAllDrives: true,
-		requestBody: {
-			name: filename,
-			parents: [FOLDER_ID],
-		},
-		media: {
-			mimeType: "application/zip",
-			body: fs.createReadStream(zipPath),
-		},
-	});
-
-	const fileId = createRes.data.id;
-
-	// Make file public (read-only)
-	await drive.permissions.create({
-		supportsAllDrives: true,
-		fileId,
-		requestBody: {
-			role: "reader",
-			type: "anyone",
-		},
-	});
-
-	// Get public link
-	const fileRes = await drive.files.get({
-		supportsAllDrives: true,
-		fileId,
-		fields: "webViewLink",
-	});
-
-	// Expose link to GitHub Actions
-	console.log(`REPORT_LINK=${fileRes.data.webViewLink}`);
 }
 
-// =====================
-// EXEC
-// =====================
+function httpRequestStream(
+	urlString,
+	{ method = "PUT", headers = {}, stream } = {},
+) {
+	return new Promise((resolve, reject) => {
+		const url = new URL(urlString);
+		const req = https.request(
+			{
+				method,
+				hostname: url.hostname,
+				path: url.pathname + url.search,
+				headers,
+			},
+			(res) => {
+				let data = "";
+				res.setEncoding("utf8");
+				res.on("data", (chunk) => (data += chunk));
+				res.on("end", () =>
+					resolve({ status: res.statusCode, headers: res.headers, body: data }),
+				);
+			},
+		);
+		req.on("error", reject);
+		stream.on("error", reject);
+		stream.pipe(req);
+	});
+}
+
+async function getAccessToken() {
+	requireEnv("GDRIVE_CLIENT_ID", clientId);
+	requireEnv("GDRIVE_CLIENT_SECRET", clientSecret);
+	requireEnv("GDRIVE_REFRESH_TOKEN", refreshToken);
+
+	const body = new URLSearchParams({
+		client_id: clientId,
+		client_secret: clientSecret,
+		refresh_token: refreshToken,
+		grant_type: "refresh_token",
+	}).toString();
+
+	const res = await httpRequest("https://oauth2.googleapis.com/token", {
+		method: "POST",
+		headers: {
+			"Content-Type": "application/x-www-form-urlencoded",
+			"Content-Length": Buffer.byteLength(body),
+		},
+		body,
+	});
+
+	if (!res.status || res.status < 200 || res.status >= 300) {
+		throw new Error(
+			`Failed to refresh token (HTTP ${res.status}): ${res.body || ""}`,
+		);
+	}
+
+	const parsed = JSON.parse(res.body);
+	if (!parsed.access_token)
+		throw new Error("Token response missing access_token");
+	return parsed.access_token;
+}
+
+async function createResumableUpload(accessToken, { filename, sizeBytes }) {
+	const res = await httpRequest(
+		"https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable",
+		{
+			method: "POST",
+			headers: {
+				Authorization: `Bearer ${accessToken}`,
+				"Content-Type": "application/json; charset=UTF-8",
+				"X-Upload-Content-Type": "application/zip",
+				"X-Upload-Content-Length": String(sizeBytes),
+			},
+			body: JSON.stringify({ name: filename }),
+		},
+	);
+
+	if (!res.status || res.status < 200 || res.status >= 300) {
+		throw new Error(
+			`Failed to start upload (HTTP ${res.status}): ${res.body || ""}`,
+		);
+	}
+
+	const location = res.headers.location;
+	if (!location) throw new Error("Resumable upload missing Location header");
+	return location;
+}
+
+async function uploadZip(accessToken, { zipPath, filename }) {
+	const stats = fs.statSync(zipPath);
+	const uploadUrl = await createResumableUpload(accessToken, {
+		filename,
+		sizeBytes: stats.size,
+	});
+
+	const res = await httpRequestStream(uploadUrl, {
+		method: "PUT",
+		headers: {
+			Authorization: `Bearer ${accessToken}`,
+			"Content-Type": "application/zip",
+			"Content-Length": String(stats.size),
+		},
+		stream: fs.createReadStream(zipPath),
+	});
+
+	if (!res.status || res.status < 200 || res.status >= 300) {
+		throw new Error(
+			`Failed to upload file bytes (HTTP ${res.status}): ${res.body || ""}`,
+		);
+	}
+
+	const parsed = JSON.parse(res.body);
+	if (!parsed.id) throw new Error("Upload response missing file id");
+	return parsed.id;
+}
+
+async function makePublic(accessToken, fileId) {
+	const res = await httpRequest(
+		`https://www.googleapis.com/drive/v3/files/${fileId}/permissions`,
+		{
+			method: "POST",
+			headers: {
+				Authorization: `Bearer ${accessToken}`,
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({ type: "anyone", role: "reader" }),
+		},
+	);
+
+	if (!res.status || res.status < 200 || res.status >= 300) {
+		throw new Error(
+			`Failed to set permissions (HTTP ${res.status}): ${res.body || ""}`,
+		);
+	}
+}
+
+async function getWebViewLink(accessToken, fileId) {
+	const res = await httpRequest(
+		`https://www.googleapis.com/drive/v3/files/${fileId}?fields=webViewLink`,
+		{
+			method: "GET",
+			headers: {
+				Authorization: `Bearer ${accessToken}`,
+				Accept: "application/json",
+			},
+		},
+	);
+
+	if (!res.status || res.status < 200 || res.status >= 300) {
+		throw new Error(
+			`Failed to read file link (HTTP ${res.status}): ${res.body || ""}`,
+		);
+	}
+
+	const parsed = JSON.parse(res.body);
+	if (!parsed.webViewLink)
+		throw new Error("Drive response missing webViewLink");
+	return parsed.webViewLink;
+}
+
+async function run() {
+	requireEnv("REPORT_ZIP", reportZip);
+	const zipPath = path.resolve(reportZip);
+	if (!fs.existsSync(zipPath))
+		throw new Error(`Report ZIP not found at: ${zipPath}`);
+
+	const accessToken = await getAccessToken();
+	const filename = `${reportNamePrefix}-${Date.now()}.zip`;
+	const fileId = await uploadZip(accessToken, { zipPath, filename });
+	await makePublic(accessToken, fileId);
+	const link = await getWebViewLink(accessToken, fileId);
+
+	console.log(`REPORT_LINK=${link}`);
+}
+
 run().catch((err) => {
 	console.error("❌ Drive upload failed");
-	console.error(err?.message || err);
+	console.error(err && err.message ? err.message : String(err));
 	process.exit(1);
 });
