@@ -57,8 +57,8 @@ async function compareImages(
 	const { width, height } = baseline;
 	const diff = new PNG({ width, height });
 
-	const baselineData = Buffer.from(baseline.data);
-	const currentData = Buffer.from(current.data);
+	const baselineData = baseline.data;
+	const currentData = current.data;
 
 	// Make ignored regions identical in both images
 	for (const region of ignoreRegions) {
