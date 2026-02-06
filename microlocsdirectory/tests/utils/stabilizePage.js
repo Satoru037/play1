@@ -1,6 +1,7 @@
 /** @format */
 
 async function stabilizePage(page) {
+	// Wait for fonts to load
 	await page.evaluate(() => {
 		if (document.fonts && document.fonts.ready) {
 			return document.fonts.ready;
@@ -8,6 +9,7 @@ async function stabilizePage(page) {
 		return Promise.resolve();
 	});
 
+	// Disable animations and transitions
 	await page.addStyleTag({
 		content: `
       *, *::before, *::after {
@@ -26,6 +28,7 @@ async function stabilizePage(page) {
     `,
 	});
 
+	// Pause sliders and scroll through page
 	await page.evaluate(async () => {
 		if (window.jQuery) {
 			window.jQuery.fx.off = true;
@@ -62,7 +65,33 @@ async function stabilizePage(page) {
 		window.scrollTo(0, 0);
 	});
 
-	await page.waitForLoadState("networkidle");
+	// Use load state with timeout instead of networkidle
+	try {
+		await page.waitForLoadState("networkidle", { timeout: 10000 });
+	} catch (e) {
+		// If networkidle times out, just wait for domcontentloaded and a short delay
+		console.log(
+			"[stabilizePage] networkidle timeout, continuing with fallback...",
+		);
+		await page.waitForLoadState("domcontentloaded");
+		await page.waitForTimeout(2000); // Wait 2 seconds for content to settle
+	}
+
+	// Wait for images to load (with timeout)
+	try {
+		await page.waitForFunction(
+			() => {
+				const images = document.querySelectorAll("img");
+				return Array.from(images).every((img) => img.complete);
+			},
+			{ timeout: 10000 },
+		);
+	} catch (e) {
+		console.log("[stabilizePage] Image loading timeout, continuing...");
+	}
+
+	// Final short wait for any last renders
+	await page.waitForTimeout(500);
 }
 
 module.exports = { stabilizePage };
