@@ -44,15 +44,12 @@ async function getIgnoreRegions(page, selectors) {
 }
 
 async function compareImages(
-	currentBuffer,
-	baselineBuffer,
+	current,
+	baseline,
 	ignoreRegions = [],
 	threshold = 0.1,
 ) {
 	const pmatch = await loadPixelmatch(); // Load pixelmatch dynamically
-
-	const current = PNG.sync.read(currentBuffer);
-	const baseline = PNG.sync.read(baselineBuffer);
 
 	const { width, height } = baseline;
 	const diff = new PNG({ width, height });
@@ -143,11 +140,7 @@ async function compareWithIgnoredRegions(
 		};
 	}
 
-	const result = await compareImages(
-		screenshotBuffer,
-		baselineBuffer,
-		ignoreRegions,
-	);
+	const result = await compareImages(current, baseline, ignoreRegions);
 
 	const pass = result.diffPercent <= maxDiffPixelRatio;
 
