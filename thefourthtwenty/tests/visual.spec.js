@@ -3,6 +3,190 @@
 const { test, expect } = require("@playwright/test");
 const { pages } = require("./pages");
 const { stabilizePage } = require("./utils/stabilizePage");
+const path = require("path");
+const { compareScreenshotToSnapshot } = require("./utils/compareSnapshot");
+
+async function markBrowseByCategoryForIgnore(page) {
+	const timeoutMs = 7000;
+	const pollEveryMs = 250;
+	const startedAt = Date.now();
+
+	while (Date.now() - startedAt < timeoutMs) {
+		const marked = await page.evaluate(() => {
+			const headingText = "BROWSE BY CATEGORY";
+			const headingSelectors = "h1,h2,h3,h4,h5,h6";
+			const containerSelectors = "section,div,main,article";
+
+			const heading = Array.from(
+				document.querySelectorAll(headingSelectors),
+			).find(
+				(el) =>
+					(el.textContent || "").replace(/\s+/g, " ").trim().toUpperCase() ===
+					headingText,
+			);
+			if (!heading) return false;
+
+			const container = heading.closest(containerSelectors);
+			if (!container) return false;
+			container.setAttribute("data-pw-ignore-visual", "browse-by-category");
+			return true;
+		});
+
+		if (marked) return;
+		await page.waitForTimeout(pollEveryMs);
+	}
+}
+
+async function markHomeHeroForIgnore(page) {
+	const timeoutMs = 7000;
+	const pollEveryMs = 250;
+	const startedAt = Date.now();
+
+	while (Date.now() - startedAt < timeoutMs) {
+		const marked = await page.evaluate(() => {
+			const containerSelectors = [
+				'.elementor-element[data-element_type="section"]',
+				".elementor-section",
+				"section",
+				"div",
+				"main",
+				"article",
+			].join(",");
+
+			const images = Array.from(
+				document.querySelectorAll("main img, .elementor img, img"),
+			);
+			if (images.length === 0) return false;
+
+			let bestImg = null;
+			let bestScore = 0;
+			for (const img of images) {
+				const rect = img.getBoundingClientRect();
+				if (rect.width < 900 || rect.height < 250) continue;
+				if (rect.top < -50 || rect.top > 550) continue;
+				const score = rect.width * rect.height;
+				if (score > bestScore) {
+					bestScore = score;
+					bestImg = img;
+				}
+			}
+			if (!bestImg) return false;
+
+			const container = bestImg.closest(containerSelectors);
+			if (!container) return false;
+			container.setAttribute("data-pw-ignore-visual", "home-hero");
+			return true;
+		});
+
+		if (marked) return;
+		await page.waitForTimeout(pollEveryMs);
+	}
+}
+
+async function markDynamicPostsForIgnore(page) {
+	await page.evaluate(() => {
+		const widgetSelectors = [
+			".elementor-widget-posts",
+			'[data-widget_type="posts.classic"]',
+			".elementor-posts",
+			".elementor-posts-container",
+		].join(",");
+		const widgets = Array.from(document.querySelectorAll(widgetSelectors));
+		if (widgets.length === 0) return;
+
+		for (const widget of widgets) {
+			const hasPosts =
+				widget.classList.contains("elementor-posts") ||
+				widget.classList.contains("elementor-posts-container") ||
+				widget.querySelector(".elementor-posts-container") ||
+				widget.querySelector("article.elementor-post");
+			if (!hasPosts) continue;
+			widget.setAttribute("data-pw-ignore-visual", "dynamic-posts");
+		}
+	});
+}
+
+async function markStillLookingHeresMoreForIgnore(page) {
+	const timeoutMs = 7000;
+	const pollEveryMs = 250;
+	const startedAt = Date.now();
+
+	while (Date.now() - startedAt < timeoutMs) {
+		const marked = await page.evaluate(() => {
+			const targetHeadingText = "STILL LOOKING? HERE'S MORE";
+			const stopHeadingText = "DON'T MISS MY NEXT POST";
+			const headingSelectors = "h1,h2,h3,h4,h5,h6";
+			const containerSelector = "section,div,main,article";
+
+			const normalize = (s) => (s || "").replace(/\s+/g, " ").trim();
+			const toKey = (s) => normalize(s).toUpperCase();
+
+			const heading = Array.from(
+				document.querySelectorAll(headingSelectors),
+			).find((el) => toKey(el.textContent) === targetHeadingText);
+			if (!heading) return false;
+
+			let node = heading;
+			for (
+				let depth = 0;
+				depth < 12 && node && node !== document.body;
+				depth++
+			) {
+				if (node.matches && node.matches(containerSelector)) {
+					const key = toKey(node.textContent);
+					if (
+						key.includes(targetHeadingText) &&
+						!key.includes(stopHeadingText)
+					) {
+						// Prefer a container that actually contains a related-posts grid/cards.
+						const hasCards =
+							node.querySelector("article") ||
+							node.querySelector(".elementor-post") ||
+							node.querySelector(".elementor-posts") ||
+							node.querySelector(".elementor-posts-container") ||
+							node.querySelector("a[href]");
+						if (hasCards) {
+							node.setAttribute(
+								"data-pw-ignore-visual",
+								"still-looking-heres-more",
+							);
+							return true;
+						}
+					}
+				}
+				node = node.parentElement;
+			}
+
+			const container = heading.closest(containerSelector);
+			if (!container) return false;
+			container.setAttribute(
+				"data-pw-ignore-visual",
+				"still-looking-heres-more",
+			);
+			return true;
+		});
+
+		if (marked) return;
+		await page.waitForTimeout(pollEveryMs);
+	}
+}
+
+async function getIgnoreRects(page) {
+	return await page.evaluate(() => {
+		const pad = 6;
+		return Array.from(document.querySelectorAll("[data-pw-ignore-visual]"))
+			.map((el) => {
+				const rect = el.getBoundingClientRect();
+				return {
+					x: rect.left + window.scrollX - pad,
+					y: rect.top + window.scrollY - pad,
+					width: rect.width + pad * 2,
+					height: rect.height + pad * 2,
+				};
+			})
+			.filter((r) => r.width > 0 && r.height > 0);
+	});
+}
 
 test.use({
 	locale: "en-US",
@@ -13,7 +197,6 @@ test.describe("Visual Regression Tests - thefourthtwenty.ca", () => {
 		test(`Visual: ${pageInfo.name}`, async ({ page }, testInfo) => {
 			// Detect device type
 			const isMobile = !testInfo.project.name.includes("Desktop");
-			const isFirefox = testInfo.project.name.includes("Firefox");
 
 			console.log(`\n========================================`);
 			console.log(`Running: ${testInfo.project.name}`);
@@ -44,6 +227,7 @@ test.describe("Visual Regression Tests - thefourthtwenty.ca", () => {
 				screenshotOptions.scale = "css";
 			}
 
+			// 1) Always attach an unmodified full-page screenshot ("like normal")
 			const screenshot = await page.screenshot(screenshotOptions);
 
 			console.log(
@@ -56,10 +240,43 @@ test.describe("Visual Regression Tests - thefourthtwenty.ca", () => {
 				contentType: "image/png",
 			});
 
-			// Visual comparison
-			expect(screenshot).toMatchSnapshot({
-				name: `${pageInfo.name}-${testInfo.project.name}.png`,
+			// 2) Visual comparison (ignore dynamic sections, but keep them visible)
+			const isHome = pageInfo.name === "01_Home";
+			const isCategoryPage = pageInfo.path.startsWith("/category/");
+			const isWeeklyWtfsListing = pageInfo.path === "/weekly-wtfs/";
+			const isStillLookingDynamicPost = [
+				"/of-life-and-death/",
+				"/welcome-to-my-existential-crisis/",
+				"/my-home-and-native-land/",
+			].includes(pageInfo.path);
+			const shouldHideDynamicPostsGrid = isCategoryPage || isWeeklyWtfsListing;
+
+			if (isHome) {
+				await markBrowseByCategoryForIgnore(page);
+				await markHomeHeroForIgnore(page);
+				// Home includes dynamic "Featured" posts widgets
+				await markDynamicPostsForIgnore(page);
+			}
+
+			if (shouldHideDynamicPostsGrid) {
+				await markDynamicPostsForIgnore(page);
+			}
+
+			if (isStillLookingDynamicPost) {
+				await markStillLookingHeresMoreForIgnore(page);
+			}
+
+			const ignoreRects = await getIgnoreRects(page);
+			const snapshotsDir = path.join(__dirname, "visual.spec.js-snapshots");
+
+			await compareScreenshotToSnapshot({
+				pageName: pageInfo.name,
+				projectName: testInfo.project.name,
+				snapshotsDir,
+				actualBuffer: screenshot,
+				ignoreRects,
 				maxDiffPixelRatio: 0.02,
+				testInfo,
 			});
 		});
 	}

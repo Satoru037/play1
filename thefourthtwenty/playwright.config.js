@@ -5,6 +5,11 @@ const { defineConfig, devices } = require("@playwright/test");
 module.exports = defineConfig({
 	testDir: "./tests",
 
+	// Use the same snapshot files across OSes (Windows/Linux) to avoid
+	// maintaining separate `-win32` and `-linux` baselines.
+	snapshotPathTemplate:
+		"{testDir}/{testFileDir}/{testFileName}-snapshots/{arg}{ext}",
+
 	fullyParallel: true,
 	forbidOnly: !!process.env.CI,
 	retries: process.env.CI ? 1 : 0,
