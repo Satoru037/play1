@@ -36,7 +36,7 @@ async function getIgnoreRegions(page, selectors) {
 				}
 			}
 		} catch (e) {
-			console.log(`[Warning] Could not find element: ${selector}`);
+			console.warn(`[Warning] Could not find element: ${selector}`);
 		}
 	}
 
@@ -47,6 +47,7 @@ async function compareImages(
 	currentBuffer,
 	baselineBuffer,
 	ignoreRegions = [],
+	threshold = 0.1,
 ) {
 	const pmatch = await loadPixelmatch(); // Load pixelmatch dynamically
 
@@ -87,7 +88,7 @@ async function compareImages(
 		width,
 		height,
 		{
-			threshold: 0.1,
+			threshold,
 		},
 	);
 
@@ -131,10 +132,10 @@ async function compareWithIgnoredRegions(
 	const baseline = PNG.sync.read(baselineBuffer);
 
 	if (current.width !== baseline.width || current.height !== baseline.height) {
-		console.log(
+		console.info(
 			`[Dimension Mismatch] Baseline: ${baseline.width}x${baseline.height}, Current: ${current.width}x${current.height}`,
 		);
-		console.log(`[Update] Writing new baseline with current dimensions...`);
+		console.info(`[Update] Writing new baseline with current dimensions...`);
 		fs.writeFileSync(baselinePath, screenshotBuffer);
 		return {
 			pass: true,
@@ -148,7 +149,7 @@ async function compareWithIgnoredRegions(
 		screenshotBuffer,
 		baselineBuffer,
 		ignoreRegions,
-	); // Added await
+	);
 
 	const pass = result.diffPercent <= maxDiffPixelRatio;
 
