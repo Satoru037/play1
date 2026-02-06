@@ -4,6 +4,8 @@ name: "The Fourth Twenty: Automation"
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: "30 3 * * 2" # Tuesday 9:00 AM IST (03:30 AM UTC)
 
 permissions:
   contents: read
@@ -44,7 +46,7 @@ jobs:
         shell: bash
         run: |
           set +e
-          npx playwright test --config=thefourthtwenty/playwright.config.js --update-snapshots --workers=1
+          npx playwright test --config=thefourthtwenty/playwright.config.js --update-snapshots
           code=$?
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
           exit $code
@@ -120,7 +122,9 @@ jobs:
       - name: Upload Report to Google Drive
         if: always() && env.REPORT_AVAILABLE == 'true'
         env:
-          GDRIVE_SERVICE_ACCOUNT_KEY: ${{ secrets.GDRIVE_SERVICE_ACCOUNT_KEY }}
+          GDRIVE_CLIENT_ID: ${{ secrets.GDRIVE_CLIENT_ID }}
+          GDRIVE_CLIENT_SECRET: ${{ secrets.GDRIVE_CLIENT_SECRET }}
+          GDRIVE_REFRESH_TOKEN: ${{ secrets.GDRIVE_REFRESH_TOKEN }}
           REPORT_ZIP: thefourthtwenty/playwright-report.zip
           REPORT_NAME_PREFIX: thefourthtwenty-report
         run: |
@@ -183,6 +187,17 @@ jobs:
             📋 Note:
             1. The test suite was executed sequentially to improve stability.
             2. UI animations were disabled during execution to ensure consistent and reliable visual comparisons.
-
+            3. Smoke tests only verify page reachability and basic structure; screenshots from smoke tests do not represent full-page validation.
+            4. Full-page screenshots and sanity checks are performed in visual tests.
+            5. Ignored dynamic elements in following pages:
+               - Homepage
+               - /of-life-and-death/
+               - /welcome-to-my-existential-crisis/
+               - /my-home-and-native-land/
+               - /category/life/
+               - /category/politics/
+               - /category/retirement/
+               - /category/other-stuff/
+               - /weekly-wtfs/
           to: ${{ secrets.REPORT_TO_MAILS }}
           from: "QA Automation Bot"

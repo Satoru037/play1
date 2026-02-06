@@ -124,7 +124,7 @@ across all configured devices.
 - `/careers/unity-developer/` – Unity
 - `/careers/web-designer/` – Web Designer
 
-### G. Web Stories (6 Endpoints)
+### G. Web Stories (6 Endpoints) REMOVE 
 
 - `/web-stories/ai-chatbot/` – AI Chatbot
 - `/web-stories/ai-in-healthcare/` – AI Healthcare

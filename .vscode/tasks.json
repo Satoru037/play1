@@ -1,0 +1,16 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "NB: Visual Gallery_Layers (Desktop Chrome)",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"$env:NO_OPEN='1'; node .\\node_modules\\@playwright\\test\\cli.js test --config=naturallybeautiful\\playwright.config.js -g \"Visual: Gallery_Layers\" --project \"Desktop Chrome\" --workers 1"
+			],
+			"isBackground": false
+		}
+	]
+}
