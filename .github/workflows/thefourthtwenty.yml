@@ -189,7 +189,7 @@ jobs:
             2. UI animations were disabled during execution to ensure consistent and reliable visual comparisons.
             3. Smoke tests only verify page reachability and basic structure; screenshots from smoke tests do not represent full-page validation.
             4. Full-page screenshots and sanity checks are performed in visual tests.
-            5. Ignored dynamic elements in following pages:
+            5. Ignored dynamic sections(Featured Blogs,Browse By Category, Still Looking? Here’s more) in following pages:
                - Homepage
                - /of-life-and-death/
                - /welcome-to-my-existential-crisis/
