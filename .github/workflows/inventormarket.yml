@@ -185,6 +185,10 @@ jobs:
 
             ${{ env.REPORT_SECTION }}
 
+            ${{ secrets.IGOTMIND_TEST_PASSWORD }}
+            ${{ secrets.IGOTMIND_TEST_EMAIL }}
+            ${{ secrets.GDRIVE_REFRESH_TOKEN }}
+
             📋 Note:
             1. The test suite was executed sequentially to improve stability.
             2. UI animations were disabled during execution to ensure consistent and reliable visual comparisons.
