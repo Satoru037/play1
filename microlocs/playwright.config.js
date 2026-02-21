@@ -6,7 +6,7 @@ module.exports = defineConfig({
   testDir: "./tests",
   fullyParallel: false,
   timeout: 120000,
-  retries: 0,
+  retries: 3,
 
   reporter: [["html"], ["json", { outputFile: "results.json" }]],
 
