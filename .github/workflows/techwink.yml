@@ -5,8 +5,8 @@ name: "Techwink: Automation"
 on:
   workflow_dispatch:
   schedule:
-    # Runs on Saturday at 9:00 AM IST (03:30 AM UTC)
-    - cron: "30 3 * * 6"
+    # Runs at 9:00 AM IST (03:30 AM UTC) on 28–31
+    - cron: "30 3 28-31 * *"
 
 permissions:
   contents: read
@@ -14,12 +14,38 @@ permissions:
   actions: read
 
 jobs:
-  test:
-    timeout-minutes: 240
+  # -------------------------------------------------
+  # 1️⃣ Guard Job (Prevents Wasting 300 Minutes)
+  # -------------------------------------------------
+  guard:
     runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.check.outputs.run }}
+
+    steps:
+      - name: Check if Last Day of Month
+        id: check
+        shell: bash
+        run: |
+          if [ "$(date -d tomorrow +%d)" = "01" ]; then
+            echo "run=true" >> $GITHUB_OUTPUT
+          else
+            echo "run=false" >> $GITHUB_OUTPUT
+          fi
+
+  # -------------------------------------------------
+  # 2️⃣ Main Test Job (Runs Only If Last Day OR Manual Trigger)
+  # -------------------------------------------------
+  test:
+    needs: guard
+    if: github.event_name == 'workflow_dispatch' || needs.guard.outputs.run == 'true'
+    timeout-minutes: 300
+    runs-on: ubuntu-latest
+
     defaults:
       run:
         working-directory: ./
+
     env:
       PASSED: "0"
       FAILED: "0"
@@ -47,7 +73,7 @@ jobs:
         shell: bash
         run: |
           set +e
-          npx playwright test --config=techwink/playwright.config.js  --update-snapshots
+          npx playwright test --config=techwink/playwright.config.js --update-snapshots
           code=$?
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
           exit $code
@@ -190,7 +216,13 @@ jobs:
             1. The test suite was executed sequentially to improve stability.
             2. UI animations were disabled during execution to ensure consistent and reliable visual comparisons.
             3. Smoke tests only verify page reachability and basic structure; screenshots from smoke tests do not represent full-page validation.
-            4. Full-page screenshots and sanity checks are performed in visual tests (visual.spec.js).
+            4. Full-page screenshots and sanity checks are performed in visual tests.
+            5. Blog endpoints covered in the suite:
+                - /blog/google-antigravity-your-path-to-a-billion-dollar-company/
+                - /blog/software-development-cost-estimation-2026/
+                - /blog/ai-code-review-in-2025-whats-real-and-whats-hype/
+                - /blog/unleashing-bigquerys-unified-multimodal-power-for-ai/
+                - /blog/explore-agentic-ai-autonomous-problem-solvers-today/
 
           to: ${{ secrets.REPORT_TO_MAILS }}
           from: "QA Automation Bot"
