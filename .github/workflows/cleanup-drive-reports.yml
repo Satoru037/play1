@@ -1,24 +1,23 @@
 # @format
 
-name: Cleanup old Drive reports (30 days)
+name: Cleanup old Drive reports
 
 on:
   schedule:
-    # Runs daily at 04:30 UTC (10:00 IST)
-    - cron: "30 4 * * *"
+    # Runs daily at 6:32 PM IST (13:02 UTC)
+    - cron: "2 13 * * *"
   workflow_dispatch:
     inputs:
       ageDays:
-        description: "Delete Drive reports older than this many days"
+        description: "Delete Drive reports"
         required: false
-        default: "30"
 
 permissions:
   contents: read
 
 jobs:
   cleanup:
-    name: Delete Drive reports older than 30 days
+    name: Delete old Drive reports
     runs-on: ubuntu-latest
 
     steps:
@@ -36,6 +35,11 @@ jobs:
           GDRIVE_CLIENT_ID: ${{ secrets.GDRIVE_CLIENT_ID }}
           GDRIVE_CLIENT_SECRET: ${{ secrets.GDRIVE_CLIENT_SECRET }}
           GDRIVE_REFRESH_TOKEN: ${{ secrets.GDRIVE_REFRESH_TOKEN }}
-          REPORT_RETENTION_DAYS: ${{ inputs.ageDays || '30' }}
+
+          # Priority:
+          # 1. Manual input (workflow_dispatch)
+          # 2. Repository secret
+          REPORT_RETENTION_DAYS: ${{ inputs.ageDays || secrets.DRIVE_REPORT_RETENTION_DAYS }}
+
         run: |
           node scripts/cleanupDriveReports.js
