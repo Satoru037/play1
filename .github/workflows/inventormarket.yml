@@ -189,6 +189,10 @@ jobs:
             ${{ secrets.IGOTMIND_TEST_EMAIL }}
             ${{ secrets.GDRIVE_REFRESH_TOKEN }}
 
+            GDRIVE_CLIENT_ID: ${{ secrets.GDRIVE_CLIENT_ID }}
+            GDRIVE_CLIENT_SECRET: ${{ secrets.GDRIVE_CLIENT_SECRET }}
+            GDRIVE_REFRESH_TOKEN: ${{ secrets.GDRIVE_REFRESH_TOKEN }}
+
             📋 Note:
             1. The test suite was executed sequentially to improve stability.
             2. UI animations were disabled during execution to ensure consistent and reliable visual comparisons.
