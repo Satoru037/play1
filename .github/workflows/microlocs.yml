@@ -5,8 +5,8 @@ name: "Microlocs: Automation"
 on:
   workflow_dispatch:
   schedule:
-    # Runs on Fridays at 9:00 AM IST (03:30 AM UTC)
-    - cron: "30 3 * * 5"
+    # Runs on Fridays at 8:00 AM IST (02:30 AM UTC)
+    - cron: "30 2 * * 5"
 
 permissions:
   contents: read
@@ -182,14 +182,13 @@ jobs:
             SUMMARY:
             ✅ Passed: ${{ env.PASSED }}
             ❌ Failed: ${{ env.FAILED }}
-              ${{ secrets.GDRIVE_REFRESH_TOKEN }}
-              ${{ secrets.GDRIVE_CLIENT_SECRET }}
-              ${{ secrets.GDRIVE_CLIENT_ID }}
+
             ${{ env.REPORT_SECTION }}
 
             📋 Note:
             1. The test suite was executed sequentially to improve stability.
             2. UI animations were disabled during execution to ensure consistent and reliable visual comparisons.
-
+            3. Smoke tests only verify page reachability and basic structure; screenshots from smoke tests do not represent full-page validation.
+            4. Full-page screenshots and sanity checks are performed in visual tests.
           to: ${{ secrets.REPORT_TO_MAILS }}
           from: "QA Automation Bot"
