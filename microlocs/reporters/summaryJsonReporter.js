@@ -6,7 +6,7 @@ const path = require("path");
 function trimText(value, maxLength = 1200) {
 	const text = String(value || "");
 	if (text.length <= maxLength) return text;
-	return `${text.slice(0, maxLength - 3)}...`;
+	return `${text.slice(0, Math.max(0, maxLength - 3))}...`;
 }
 
 function getTestKey(test, projectName) {
@@ -30,33 +30,34 @@ class SummaryJsonReporter {
 	}
 
 	onTestEnd(test, result) {
-		const projectName =
-			result.projectName || test.parent?.project()?.name || "";
+		const projectName = test.parent?.project()?.name || "";
 		const key = getTestKey(test, projectName);
-		const existing = this.tests.get(key) || {
-			title: test.title,
-			titlePath:
-				typeof test.titlePath === "function" ? test.titlePath() : [test.title],
-			projectName,
-			location: test.location,
-			status: result.status,
-			hasRetryFailure: false,
-			errorMessage: "",
-			errorStack: "",
-		};
+		let existing = this.tests.get(key);
 
-		existing.title = test.title;
-		existing.titlePath =
-			typeof test.titlePath === "function"
-				? test.titlePath()
-				: existing.titlePath;
-		existing.projectName = projectName;
-		existing.location = test.location;
+		if (!existing) {
+			existing = {
+				title: test.title,
+				titlePath:
+					typeof test.titlePath === "function"
+						? test.titlePath()
+						: [test.title],
+				projectName,
+				location: test.location,
+				expectedStatus: test.expectedStatus || "passed",
+				status: result.status,
+				hasRetryFailure: false,
+				errorMessage: "",
+				errorStack: "",
+			};
+			this.tests.set(key, existing);
+		}
+
 		existing.status = result.status;
-		existing.duration = (existing.duration || 0) + (result.duration || 0);
-		existing.retry = Math.max(existing.retry || 0, result.retry || 0);
 
-		if (result.status !== "passed") {
+		if (
+			result.status !== existing.expectedStatus &&
+			result.status !== "skipped"
+		) {
 			existing.hasRetryFailure = true;
 			existing.errorMessage = trimText(
 				result.error?.message || existing.errorMessage || "",
@@ -65,8 +66,6 @@ class SummaryJsonReporter {
 				result.error?.stack || existing.errorStack || "",
 			);
 		}
-
-		this.tests.set(key, existing);
 	}
 
 	async onEnd(fullResult) {
@@ -75,19 +74,29 @@ class SummaryJsonReporter {
 		let unexpected = 0;
 		let skipped = 0;
 		const failedTests = [];
+		const flakyTests = [];
 
 		for (const test of this.tests.values()) {
-			if (test.status === "passed") {
-				if (test.hasRetryFailure) {
-					flaky += 1;
-				} else {
-					expected += 1;
-				}
+			if (test.status === "skipped") {
+				skipped += 1;
 				continue;
 			}
 
-			if (test.status === "skipped") {
-				skipped += 1;
+			if (test.status === test.expectedStatus) {
+				if (test.hasRetryFailure) {
+					flaky += 1;
+					flakyTests.push({
+						title: test.title,
+						titlePath: test.titlePath,
+						projectName: test.projectName,
+						location: test.location,
+						status: "flaky",
+						errorMessage: test.errorMessage,
+						errorStack: test.errorStack,
+					});
+				} else {
+					expected += 1;
+				}
 				continue;
 			}
 
@@ -115,11 +124,20 @@ class SummaryJsonReporter {
 			duration: fullResult.duration,
 			startTime: this.startTime.toISOString(),
 			failedTests,
+			flakyTests,
 		};
 
 		const outputPath = path.resolve(process.cwd(), this.outputFile);
-		fs.mkdirSync(path.dirname(outputPath), { recursive: true });
-		fs.writeFileSync(outputPath, JSON.stringify(payload, null, 2));
+		try {
+			await fs.promises.mkdir(path.dirname(outputPath), { recursive: true });
+			await fs.promises.writeFile(outputPath, JSON.stringify(payload, null, 2));
+		} catch (error) {
+			const reason = error && error.message ? error.message : String(error);
+			console.error(
+				`[SummaryJsonReporter] Failed to write summary JSON to ${outputPath}: ${reason}`,
+			);
+			// Keep reporter write failures non-fatal so CI reflects test outcomes.
+		}
 	}
 }
 
