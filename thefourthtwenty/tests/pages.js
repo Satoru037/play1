@@ -7,7 +7,7 @@
 
 const pages = [
 	// Main Pages
-	{ path: "/", name: "01_Home" },
+	{ path: "/", name: "01_Home", imageLoadTimeoutMs: 15000 },
 	{ path: "/about/", name: "02_About" },
 
 	// Category Pages

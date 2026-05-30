@@ -1,6 +1,6 @@
 /** @format */
 
-const fs = require("fs");
+const fs = require("fs").promises;
 const path = require("path");
 const { PNG } = require("pngjs");
 const pixelmatchModule = require("pixelmatch");
@@ -29,7 +29,9 @@ function clampRectToImage(rect, width, height) {
 }
 
 function applyIgnoreRects(actualPng, expectedPng, ignoreRects) {
-	if (!ignoreRects || ignoreRects.length === 0) return;
+	if (!ignoreRects || ignoreRects.length === 0) return actualPng.data;
+
+	const actualData = Buffer.from(actualPng.data);
 	const width = actualPng.width;
 	const height = actualPng.height;
 
@@ -38,16 +40,19 @@ function applyIgnoreRects(actualPng, expectedPng, ignoreRects) {
 		if (!clamped) continue;
 
 		for (let y = clamped.y1; y < clamped.y2; y++) {
-			for (let x = clamped.x1; x < clamped.x2; x++) {
-				const idx = (y * width + x) * 4;
-				// Force actual pixels to match expected pixels inside ignored region
-				actualPng.data[idx] = expectedPng.data[idx];
-				actualPng.data[idx + 1] = expectedPng.data[idx + 1];
-				actualPng.data[idx + 2] = expectedPng.data[idx + 2];
-				actualPng.data[idx + 3] = expectedPng.data[idx + 3];
-			}
+			const rowStart = (y * width + clamped.x1) * 4;
+			const rowLength = (clamped.x2 - clamped.x1) * 4;
+			// Force actual pixels to match expected pixels inside ignored region
+			expectedPng.data.copy(
+				actualData,
+				rowStart,
+				rowStart,
+				rowStart + rowLength,
+			);
 		}
 	}
+
+	return actualData;
 }
 
 async function compareScreenshotToSnapshot({
@@ -67,18 +72,23 @@ async function compareScreenshotToSnapshot({
 			testInfo.config.updateSnapshots !== "none") ||
 		false;
 
-	if (!fs.existsSync(snapshotPath)) {
-		if (!updateMode) {
-			throw new Error(
-				`Snapshot missing: ${path.relative(process.cwd(), snapshotPath)}`,
-			);
+	let expectedBuffer;
+	try {
+		expectedBuffer = await fs.readFile(snapshotPath);
+	} catch (error) {
+		if (error && error.code === "ENOENT") {
+			if (!updateMode) {
+				throw new Error(
+					`Snapshot missing: ${path.relative(process.cwd(), snapshotPath)}`,
+				);
+			}
+			await fs.mkdir(path.dirname(snapshotPath), { recursive: true });
+			await fs.writeFile(snapshotPath, actualBuffer);
+			return;
 		}
-		fs.mkdirSync(path.dirname(snapshotPath), { recursive: true });
-		fs.writeFileSync(snapshotPath, actualBuffer);
-		return;
+		throw error;
 	}
 
-	const expectedBuffer = fs.readFileSync(snapshotPath);
 	const expectedPng = PNG.sync.read(expectedBuffer);
 	const actualPng = PNG.sync.read(actualBuffer);
 
@@ -87,7 +97,7 @@ async function compareScreenshotToSnapshot({
 		expectedPng.height !== actualPng.height
 	) {
 		if (updateMode) {
-			fs.writeFileSync(snapshotPath, actualBuffer);
+			await fs.writeFile(snapshotPath, actualBuffer);
 			return;
 		}
 		throw new Error(
@@ -96,11 +106,15 @@ async function compareScreenshotToSnapshot({
 	}
 
 	const diffPng = new PNG({ width: actualPng.width, height: actualPng.height });
-	applyIgnoreRects(actualPng, expectedPng, ignoreRects);
+	const comparedActualData = applyIgnoreRects(
+		actualPng,
+		expectedPng,
+		ignoreRects,
+	);
 
 	const diffPixels = pixelmatch(
 		expectedPng.data,
-		actualPng.data,
+		comparedActualData,
 		diffPng.data,
 		actualPng.width,
 		actualPng.height,
@@ -114,12 +128,13 @@ async function compareScreenshotToSnapshot({
 
 	if (ratio > maxDiffPixelRatio) {
 		if (updateMode) {
-			fs.writeFileSync(snapshotPath, actualBuffer);
+			await fs.writeFile(snapshotPath, actualBuffer);
 			return;
 		}
 
 		const diffPath = snapshotPath.replace(/\.png$/i, ".diff.png");
-		fs.writeFileSync(diffPath, PNG.sync.write(diffPng));
+		const diffBuffer = PNG.sync.write(diffPng);
+		await fs.writeFile(diffPath, diffBuffer);
 
 		if (testInfo) {
 			await testInfo.attach(`Expected – ${pageName}`, {
@@ -131,7 +146,7 @@ async function compareScreenshotToSnapshot({
 				contentType: "image/png",
 			});
 			await testInfo.attach(`Diff – ${pageName}`, {
-				body: PNG.sync.write(diffPng),
+				body: diffBuffer,
 				contentType: "image/png",
 			});
 		}

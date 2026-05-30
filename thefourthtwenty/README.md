@@ -17,14 +17,15 @@ key pages render consistently across all supported devices.
 The automation suite follows a **modular and centralized structure** to ensure
 maintainability and deterministic visual testing.
 
-| File / Folder                     | Description                                        |
-| :-------------------------------- | :------------------------------------------------- |
-| `tests/pages.js`                  | Centralized list of all URLs under test            |
-| `tests/visual.spec.js`            | Full-page visual regression tests                  |
-| `tests/smoke.spec.js`             | Smoke tests to verify page availability            |
-| `tests/utils/stabilizePage.js`    | Freezes animations & triggers lazy-loaded sections |
-| `tests/visual.spec.js-snapshots/` | Baseline visual snapshots                          |
-| `playwright.config.js`            | Device matrix & execution configuration            |
+| File / Folder                     | Description                                                         |
+| :-------------------------------- | :------------------------------------------------------------------ |
+| `tests/pages.js`                  | Centralized list of all URLs under test                             |
+| `tests/visual.spec.js`            | Full-page visual regression tests                                   |
+| `tests/smoke.spec.js`             | Smoke tests to verify page availability                             |
+| `tests/utils/stabilizePage.js`    | Freezes animations & triggers lazy-loaded sections                  |
+| `tests/utils/compareSnapshot.js`  | Custom pixel-level snapshot comparison with ignored dynamic regions |
+| `tests/visual.spec.js-snapshots/` | Baseline visual snapshots                                           |
+| `playwright.config.js`            | Device matrix & execution configuration                             |
 
 ---
 
@@ -56,19 +57,22 @@ across all configured devices.
 - `/category/retirement/` – Category: Retirement
 - `/category/other-stuff/` – Category: Other Stuff
 
-### C. Blog Posts (5 Endpoints)
+### C. Blog Posts (8 Endpoints)
 
 - `/of-life-and-death/` – Of Life And Death
 - `/welcome-to-my-existential-crisis/` – Welcome To My Existential Crisis
 - `/my-home-and-native-land/` – My Home And Native Land
 - `/weekly-wtfs/` – Weekly WTFs
 - `/weekly-wtf/floor-crossers/` – Weekly WTF: Floor Crossers
+- `/welcome-home-baby/` – Welcome Home Baby
+- `/head-and-shoulder-knees-and-toes/` – Head And Shoulders Knees And Toes
+- `/weekly-wtf/parking/` – Weekly WTF: Parking
 
 ---
 
 ## 5. Execution Option A: Cloud (GitHub Actions)
 
-**Trigger:** Manual (`workflow_dispatch`)
+Schedule: On the 2nd and 4th Tuesdays of every month at **8:00 AM IST** (**02:30 AM UTC**).
 
 1. Navigate to the **Actions** tab.
 2. Select **The Fourth Twenty: Automation**.
@@ -95,10 +99,10 @@ npx playwright install
 
 ### Step 2: Run Tests
 
-From the thefouthtwenty App folder:
+From the thefourthtwenty App folder:
 
 ```bash
-cd thefouthtwenty
+cd thefourthtwenty
 npx playwright test
 ```
 
